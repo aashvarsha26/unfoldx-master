@@ -29,11 +29,11 @@ class AppContext:
         self.bus = RedisBus(settings.redis_url) if settings.redis_url else InMemoryBus()
         self.vault = Vault(settings.fernet_key, settings.secret_key)
         self.events = EventService(self.db.sessionmaker, self.bus, settings.secret_key)
-        self.local_codex = LocalAgentBridge(settings.agent_bridge_token)
+        self.local_agents = LocalAgentBridge(settings.agent_bridge_token)
         self.adapters = build_adapters(settings)
         self.budget = BudgetService(self.db.sessionmaker)
         self.entitlement = EntitlementService(self.db.sessionmaker, settings, self.vault, self.adapters, self.budget, self.events)
-        self.entitlement._local_codex_broker = self.local_codex
+        self.entitlement._local_agent_broker = self.local_agents
         self.runner = AgentRunner(self)
         self.orchestrator = Orchestrator(self)
 
