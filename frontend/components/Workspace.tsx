@@ -17,6 +17,7 @@ import { AgentRail } from "./AgentRail";
 import { PluginsPanel } from "./PluginsPanel";
 import { ProvidersPanel } from "./ProvidersPanel";
 import { Inspector } from "./Inspector";
+import { OutputPanel } from "./OutputPanel";
 import type { CanvasPluginPanel, PluginId } from "@/lib/plugins";
 
 // React Flow measures the DOM, so it only mounts on the client.
@@ -175,8 +176,11 @@ export function Workspace() {
           </svg>
           View execution details
         </summary>
-        <div className="border-t border-ink-700 p-4">
-          <EventFeed events={events} />
+        <div className="border-t border-ink-700 space-y-4 p-4">
+          <OutputPanel events={events} />
+          <div className="border-t border-ink-700 pt-4">
+            <EventFeed events={events} />
+          </div>
         </div>
       </details>
     </main>
