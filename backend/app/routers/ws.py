@@ -79,15 +79,15 @@ async def feed(websocket: WebSocket, workspace_id: str):
 
 @router.websocket("/ws/agent-bridge")
 async def local_worker(websocket: WebSocket):
-    """Authenticated outbound worker channel for local ChatGPT-authenticated Codex."""
+    """Authenticated outbound worker channel for local provider agents."""
     ctx = websocket.app.state.ctx
     token = websocket.query_params.get("token", "")
-    if not ctx.local_codex.enabled or token != ctx.local_codex.token:
+    if not ctx.local_agents.enabled or token != ctx.local_agents.token:
         await websocket.close(code=st.WS_1008_POLICY_VIOLATION)
         return
     await websocket.accept()
     try:
-        await ctx.local_codex.worker_loop(websocket)
+        await ctx.local_agents.worker_loop(websocket)
     except WebSocketDisconnect:
         pass
     except Exception:
