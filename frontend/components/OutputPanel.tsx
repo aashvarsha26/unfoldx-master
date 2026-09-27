@@ -13,20 +13,20 @@ import type { WorkspaceEvent } from "@/lib/types";
  * useWorkspaceSocket into `events`.
  */
 
-interface TaskStream {
+interface ExecutionResult { type?: string; status?: string | null; stats?: { duration_ms?: number; session_costs?: number; tool_calls?: number; [key: string]: unknown } }\n\ninterface TaskStream {
   taskId: string;
   lines: { id: string; provider: string | null; text: string; simulated: boolean }[];
   simulated: boolean;
 }
 
-function groupByTask(events: WorkspaceEvent[]): TaskStream[] {
+function asResult(value: unknown): ExecutionResult | undefined {\n  if (!value || typeof value !== "object") return undefined;\n  const v = value as Record<string, unknown>;\n  return { type: typeof v.type === "string" ? v.type : undefined, status: typeof v.status === "string" ? v.status : null, stats: v.stats && typeof v.stats === "object" ? (v.stats as ExecutionResult["stats"]) : undefined };\n}\n\nfunction groupByTask(events: WorkspaceEvent[]): TaskStream[] {
   const byTask = new Map<string, TaskStream>();
   for (const e of events) {
     if (e.event_type !== "agent_output" || !e.task_id) continue;
     const text = typeof e.payload.text === "string" ? e.payload.text : "";
     let stream = byTask.get(e.task_id);
     if (!stream) {
-      stream = { taskId: e.task_id, lines: [], simulated: false };
+      stream = { taskId: e.task_id, lines: [], simulated: false, resultText: "", files: [] };
       byTask.set(e.task_id, stream);
     }
     if (text) {
@@ -47,7 +47,7 @@ function TaskStreamView({ stream, defaultOpen }: { stream: TaskStream; defaultOp
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
 
-  const lastLen = stream.lines[stream.lines.length - 1]?.text.length ?? 0;
+  const lastLen = stream.lines[stream.lines.length - 1]?.text.length ?? 0;\n  const stats = stream.result?.stats;\n  const status = stream.result?.status;
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -74,8 +74,23 @@ function TaskStreamView({ stream, defaultOpen }: { stream: TaskStream; defaultOp
         </span>
       </button>
       {open && (
-        <div
-          ref={scrollRef}
+        <div className="border-t border-ink-700">
+          <div className="px-3 py-3">
+            <div className="mb-2 flex items-center gap-2">
+              <span className={status === "success" ? "text-state-success" : "text-state-error"}>
+                {status === "success" ? "✓ Completed" : "Execution"}
+              </span>
+              {typeof stats?.duration_ms === "number" && <span className="text-[10px] text-muted">{(stats.duration_ms / 1000).toFixed(2)}s</span>}
+              {typeof stats?.tool_calls === "number" && <span className="text-[10px] text-muted">{stats.tool_calls} tool call{stats.tool_calls === 1 ? "" : "s"}</span>}
+              {typeof stats?.session_costs === "number" && <span className="text-[10px] text-muted">${stats.session_costs.toFixed(4)}</span>}
+            </div>
+            {stream.resultText && <p className="text-sm leading-relaxed text-parchment/90">{stream.resultText}</p>}
+            {stream.files.length > 0 && <div className="mt-3"><div className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-muted">Files changed</div>{stream.files.map(file => <div key={file} className="rounded bg-ink-900 px-2 py-1 font-mono text-[11px] text-parchment/80">✓ {file}</div>)}</div>}
+          </div>
+          <details className="border-t border-ink-700 px-3 py-2">
+            <summary className="cursor-pointer text-[10px] font-medium text-muted hover:text-parchment">Execution details</summary>
+            <div
+              ref={scrollRef}
           className="max-h-64 overflow-y-auto border-t border-ink-700 px-3 py-2"
           onScroll={(e) => {
             const el = e.currentTarget;
