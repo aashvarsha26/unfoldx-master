@@ -16,7 +16,7 @@ PROVIDERS: dict[str, dict] = {
         "pricing": {"model": "credits", "usd_per_credit": 0.05, "credits_per_mtok": 20.0},
     },
     "opencode": {
-        "display_name": "OpenCode", "default_model": "opencode",
+        "display_name": "OpenCode", "default_model": None,
         "capabilities": {"frontend": .88, "refactor": .85, "testing": .82, "backend": .80, "debugging": .80,
                          "architecture": .78, "docs": .75, "security": .70, "data": .70, "planning": .70, "devops": .68},
         "pricing": {"model": "token", "input_per_mtok": 2.0, "output_per_mtok": 8.0},
@@ -29,7 +29,7 @@ PROVIDERS: dict[str, dict] = {
         "note": "Headless mode reported unstable for sustained non-TTY use: best-effort provider.",
     },
     "github_copilot": {
-        "display_name": "GitHub Copilot", "default_model": "copilot",
+        "display_name": "GitHub Copilot", "default_model": None,
         "capabilities": {"backend": .82, "frontend": .82, "testing": .80, "refactor": .78, "debugging": .78,
                          "docs": .72, "devops": .75, "architecture": .68, "security": .62, "data": .60, "planning": .50},
         # Copilot is seat-priced with the subscription; notional rate keeps a cap meaningful.
