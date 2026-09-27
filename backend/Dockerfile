@@ -6,7 +6,7 @@ WORKDIR /srv
 # Node 24 is not yet widely available on all Debian slim variants; 20 LTS is stable.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -18,14 +18,12 @@ RUN apt-get update \
 # MANUAL: verify the correct installer URL from https://ibm.com/products/bob
 RUN curl -fsSL https://bob.ibm.com/download/bobshell.sh | bash \
     && command -v bob \
-    && bob --version \
-    || echo "WARNING: IBM Bob Shell install failed — bob will not be available at runtime"
+    && bob --version
 
 # --- OpenAI Codex CLI ---
 RUN npm install -g @openai/codex \
     && command -v codex \
-    && codex --version \
-    || echo "WARNING: Codex CLI install failed — codex will not be available at runtime"
+    && codex --version
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
@@ -43,8 +41,7 @@ ENV HOME=/home/uaw PATH=/home/uaw/.local/bin:$PATH
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && mkdir -p /home/uaw/.gemini/antigravity-cli \
     && printf '{"modelProvider":"gemini"}\n' > /home/uaw/.gemini/antigravity-cli/settings.json \
-    && agy --version \
-    || echo "WARNING: Antigravity CLI (agy) install failed — gemini provider will not be available at runtime"
+    && agy --version
 
 EXPOSE 8000
 
