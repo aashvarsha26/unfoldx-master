@@ -61,6 +61,7 @@ class AgentRunner:
             out.error_kind = "auth"
             return out
         buffer, result_text = [], ""
+        result_metadata: dict = {}
         state = {}
         try:
             while True:
@@ -75,6 +76,8 @@ class AgentRunner:
                             await ctx.events.append(ws_id, "log_line", {"line": ev.text[:MAX_LINE], "stream": "stdout"}, **ident)
                         elif ev.kind == "result":
                             result_text = ev.text or result_text
+                            if ev.metadata:
+                                result_metadata = dict(ev.metadata)
                         elif ev.kind == "file":
                             for f in ev.files:
                                 if f not in out.files:
@@ -108,7 +111,8 @@ class AgentRunner:
         if out.ok and req.mode != "plan" and out.final_text.strip():
             await ctx.events.append(ws_id, "agent_output", {
                 "text": out.final_text.strip()[:20_000], "simulated": False,
-                "structured": False, "execution": "local_worker"}, **ident)
+                "structured": bool(result_metadata), "result": result_metadata or None,
+                "files": out.files, "execution": "local_worker"}, **ident)
         return out
 
     async def run(self, *, ws_id: str, task_id: str | None, subtask_id: str | None, agent: Agent, req: RunRequest,
@@ -151,6 +155,7 @@ class AgentRunner:
         buffer: list[str] = []
         buf_len = 0
         result_text = ""
+        result_metadata: dict = {}
         error_seen: str | None = None
         hard_cli_failure = False
         auth_error_text = ""
@@ -198,6 +203,8 @@ class AgentRunner:
                             await on_file(f)
                 elif ev.kind == "result":
                     result_text = ev.text or result_text
+                    if ev.metadata:
+                        result_metadata = dict(ev.metadata)
                 elif ev.kind == "error":
                     if is_cli_permission_error(ev.text):
                         # Signed-in but the headless permission policy refused the tool call.
@@ -259,6 +266,8 @@ class AgentRunner:
             await ctx.events.append(ws_id, "agent_output", {
                 "text": out.final_text.strip()[:20_000],
                 "simulated": handle.simulated,
-                "structured": False,
+                "structured": bool(result_metadata),
+                "result": result_metadata or None,
+                "files": out.files,
             }, **ident)
         return out
