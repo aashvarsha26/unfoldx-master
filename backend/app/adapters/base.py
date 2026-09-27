@@ -36,6 +36,7 @@ class AgentEvent:
     cost_usd: float | None = None
     files: list[str] = field(default_factory=list)
     stream: str = "stdout"
+    metadata: dict = field(default_factory=dict)
 
 
 @dataclass
