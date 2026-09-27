@@ -124,13 +124,15 @@ class EntitlementService:
             auth_state = "disconnected"
         elif cred[0]:
             auth_state = "api_key"
+        elif conn.auth_type == "local_worker":
+            auth_state = "local_worker" if self._local_agent_broker and self._local_agent_broker.connected(provider) else "worker_disconnected"
         elif conn.auth_type == "host_session":
             auth_state = "host_session" if host_login else "signed_out"
         else:
             auth_state = "no_credentials"
         ent.update(connected=conn is not None, auth_type=conn.auth_type if conn else None,
                    auth_state=auth_state,
-                   authenticated=auth_state in ("api_key", "host_session"),
+                   authenticated=auth_state in ("api_key", "host_session", "local_worker"),
                    credential_stored=bool(conn and conn.secret_ciphertext),  # never the secret itself
                    env_key_present=env_key_present,
                    credential_hint=self._credential_hint(provider, auth_state),
