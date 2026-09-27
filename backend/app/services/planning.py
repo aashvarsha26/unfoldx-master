@@ -35,63 +35,82 @@ class Plan(BaseModel):
 
 # ---------------------------------------------------------------------------------------------
 def _json_candidates(text: str) -> list[dict]:
-    """All JSON objects found in text: try the whole text first (Bob --format json outputs a
-    single bare JSON object with no fencing), then fenced blocks, then balanced-brace scans."""
+    """Find plan objects in plain JSON, NDJSON, or provider result envelopes.
+
+    Bob's --format json output is a result envelope whose plan may live in
+    last_message, so the envelope and its nested JSON must both be inspected.
+    """
     found: list[dict] = []
 
-    # Fast path: Bob plan mode writes one clean JSON object to stdout, nothing else.
-    # Also handles NDJSON: the last non-empty line that is a valid JSON plan object wins.
-    for line in reversed(text.strip().splitlines()):
-        s = line.strip()
-        if s.startswith("{") and s.endswith("}"):
-            try:
-                v = json.loads(s)
-                if isinstance(v, dict) and "subtasks" in v:
-                    found.append(v)
-                    break
-            except json.JSONDecodeError:
-                pass
+    def add_value(value: object, depth: int = 0) -> None:
+        if depth > 3 or not isinstance(value, dict):
+            return
+        if "subtasks" in value and value not in found:
+            found.append(value)
+        for key in ("last_message", "result", "output", "message", "text", "content"):
+            nested = value.get(key)
+            if isinstance(nested, dict):
+                add_value(nested, depth + 1)
+            elif isinstance(nested, str) and nested.strip():
+                add_text(nested, depth + 1)
 
-    for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S | re.I):
+    def add_text(value: str, depth: int = 0) -> None:
+        if depth > 3:
+            return
+        raw = value.strip()
+        if not raw:
+            return
         try:
-            v = json.loads(m.group(1))
-            if isinstance(v, dict) and v not in found:
-                found.append(v)
+            parsed = json.loads(raw)
         except json.JSONDecodeError:
-            pass
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] != "{":
-            i += 1
-            continue
-        depth, j, in_str, esc = 0, i, False, False
-        while j < n:
-            c = text[j]
-            if in_str:
-                if esc:
-                    esc = False
-                elif c == "\\":
-                    esc = True
+            parsed = None
+        if isinstance(parsed, dict):
+            add_value(parsed, depth)
+            return
+        for line in reversed(raw.splitlines()):
+            s = line.strip()
+            if not (s.startswith("{") and s.endswith("}")):
+                continue
+            try:
+                parsed = json.loads(s)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                add_value(parsed, depth)
+        i, n = 0, len(raw)
+        while i < n:
+            if raw[i] != "{":
+                i += 1
+                continue
+            depth_json, k, in_str, esc = 0, i, False, False
+            while k < n:
+                c = raw[k]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
                 elif c == '"':
-                    in_str = False
-            elif c == '"':
-                in_str = True
-            elif c == "{":
-                depth += 1
-            elif c == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        v = json.loads(text[i:j + 1])
-                        if isinstance(v, dict) and v not in found:
-                            found.append(v)
-                    except json.JSONDecodeError:
-                        pass
-                    break
-            j += 1
-        i = j + 1 if depth == 0 and j < n else i + 1
-    return found
+                    in_str = True
+                elif c == "{":
+                    depth_json += 1
+                elif c == "}":
+                    depth_json -= 1
+                    if depth_json == 0:
+                        try:
+                            parsed = json.loads(raw[i:k + 1])
+                        except json.JSONDecodeError:
+                            parsed = None
+                        if isinstance(parsed, dict):
+                            add_value(parsed, depth)
+                        break
+                k += 1
+            i = k + 1 if depth_json == 0 and k < n else i + 1
 
+    add_text(text)
+    return found
 
 def _clean_path(p: str) -> str | None:
     p = p.strip().replace("\\", "/").lstrip("/")
@@ -161,11 +180,16 @@ def heuristic_plan(request: str) -> dict:
     """Keyword-based decomposition. Used ONLY as a fallback when Bob is unavailable/unparseable, and by
     the simulator. Real decomposition is Bob's Plan mode."""
     low = request.lower()
-    chosen = [r for r in _RULES if any(re.search(r"\b" + re.escape(k.strip()), low) for k in r[1])]
-    if not chosen:
-        chosen = [_RULES[1]]
     explicit = [p for p in re.findall(r"[\w./-]+\.[A-Za-z0-9]{1,5}\b", request) if "/" in p or p.count(".") == 1]
     explicit = [p for p in (_clean_path(x) for x in explicit) if p and not p.startswith("http")]
+
+    chosen = [r for r in _RULES if any(re.search(r"\b" + re.escape(k.strip()), low) for k in r[1])]
+    if not chosen:
+        if explicit:
+            inferred = next((_EXT_TO_CAP.get(_ext(path)) for path in explicit if _EXT_TO_CAP.get(_ext(path))), "docs")
+            chosen = [(inferred, (), "Create or modify the requested files", explicit)]
+        else:
+            chosen = [_RULES[1]]
     subtasks: list[dict] = []
     for cap, _, title, files in chosen:
         mine = [p for p in explicit if _EXT_TO_CAP.get(_ext(p)) == cap]
