@@ -4,30 +4,27 @@ import os
 
 from ..config import Settings
 from .base import AgentEvent, CliAdapter, _run_auth_probe
-from .normalize import agy_event, codex_event, generic_event, opencode_event
+from .normalize import agy_event, bob_event, codex_event, generic_event, opencode_event
 
 _PROBE = "reply with exactly: UAW_AUTH_PROBE_OK"
 
 
 class BobAdapter(CliAdapter):
-    """IBM Bob Shell: Plan-mode decomposition + headless execution (`bob run --output-format stream-json`)."""
+    """IBM Bob Shell: Plan-mode decomposition + headless execution.
+    Plan mode: `bob run --format json`  (single JSON object on stdout, parsed by parse_plan).
+    Execute mode: `bob run --format stream-json`  (NDJSON, parsed by bob_event)."""
     provider, binary = "bob", "bob"
     api_key_env_attr, cmd_attr, plan_cmd_attr = "bob_api_key_env", "bob_cmd", "bob_plan_cmd"
 
     def parse_json_event(self, obj: dict, state: dict) -> list[AgentEvent]:
-        # Bob Shell emits stream-json in the same generic shape (type/text/usage keys).
-        # generic_event handles it correctly today; swap this for a bob-specific parser
-        # once the exact wire format is confirmed from live runs.
-        return generic_event(obj, state)
+        return bob_event(obj, state)
 
     async def check_auth(self) -> bool:
-        """Return True when an API key is present in the environment (env var set or stored in DB).
-        Bob is API-key authenticated, so a key in the environment is sufficient proof of auth."""
-        key_env = self.settings.bob_api_key_env  # "BOB_API_KEY"
-        if os.environ.get(key_env):
+        """Bob is API-key authenticated. A key present in the environment is sufficient;
+        no interactive probe needed (safe to call on Railway)."""
+        if os.environ.get(self.settings.bob_api_key_env):   # BOB_API_KEY
             return True
-        # Legacy env var kept for backwards compat with older Railway deployments.
-        if os.environ.get("BOBSHELL_API_KEY"):
+        if os.environ.get("BOBSHELL_API_KEY"):               # legacy compat
             return True
         return False
 
@@ -42,8 +39,13 @@ class OpenCodeAdapter(CliAdapter):
         return opencode_event(obj, state)
 
     async def check_auth(self) -> bool:
-        # opencode stores its login in host config (`opencode auth login`); a tiny real prompt
-        # proves the account is signed in and funded, so routing/entitlement treat it as live.
+        # On Railway, OpenCode CLIs are not installed; they run via the local-agent bridge.
+        # The bridge's connection state is checked by the orchestrator before dispatching;
+        # returning True here when an API key env var is present covers the direct-CLI path
+        # (local dev).  On Railway with no CLI, this returns False and the provider is
+        # marked as needing the local worker.
+        if os.environ.get(self.settings.opencode_api_key_env):
+            return True
         return await _run_auth_probe([self.executable(), "run", _PROBE])
 
 
@@ -56,12 +58,18 @@ class CodexAdapter(CliAdapter):
         return codex_event(obj, state)
 
     async def check_auth(self) -> bool:
-        return await _run_auth_probe([self.executable(), "exec", "--skip-git-repo-check", "-s", "read-only", _PROBE])
+        # On Railway, Codex runs via the local-agent bridge (user's machine, ChatGPT OAuth).
+        # If OPENAI_API_KEY is set in the environment the direct-CLI path is also valid.
+        if os.environ.get(self.settings.codex_api_key_env):
+            return True
+        return await _run_auth_probe(
+            [self.executable(), "exec", "--skip-git-repo-check", "-s", "read-only", _PROBE])
 
 
 class GeminiAdapter(CliAdapter):
-    """Google Antigravity CLI (agy): host-session authenticated, `--output-format stream-json` NDJSON
-    normalised by `agy_event` (init / step_update with tool + usage / result)."""
+    """Google Antigravity CLI (agy): API-key authenticated via GEMINI_API_KEY; `--output-format
+    stream-json` NDJSON normalised by `agy_event`.  The `--yes` flag added to every command
+    template suppresses interactive confirmation prompts so agy does not hang on Railway."""
     provider, binary = "gemini", "agy"
     api_key_env_attr, cmd_attr, plan_cmd_attr = "gemini_api_key_env", "gemini_cmd", "gemini_plan_cmd"
 
@@ -69,7 +77,12 @@ class GeminiAdapter(CliAdapter):
         return agy_event(obj, state)
 
     async def check_auth(self) -> bool:
-        return await _run_auth_probe([self.executable(), "-p", _PROBE])
+        """Antigravity is authenticated via GEMINI_API_KEY (set in the environment or stored in
+        the workspace DB).  Checking for the key is sufficient and safe for Railway — the live
+        probe would block on stdin on a non-TTY host."""
+        if os.environ.get(self.settings.gemini_api_key_env):   # GEMINI_API_KEY
+            return True
+        return False
 
 
 class GitHubCopilotAdapter(CliAdapter):
@@ -81,12 +94,14 @@ class GitHubCopilotAdapter(CliAdapter):
     api_key_env_attr, cmd_attr, plan_cmd_attr = "copilot_api_key_env", "copilot_cmd", "copilot_plan_cmd"
 
     async def check_auth(self) -> bool:
-        # GITHUB_TOKEN/GH_TOKEN presence is the CLI's documented credential; the org-policy
-        # rejection we saw live happens at request time, so a plain env check + probe.
-        import os
-        if not (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")):
-            return False
-        return await _run_auth_probe([self.executable(), "-p", _PROBE])
+        # GITHUB_TOKEN/GH_TOKEN presence is the CLI's documented credential.
+        if os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN"):
+            # Token present: still run the probe if the CLI is available locally, but do
+            # not block on it on Railway where copilot is not installed.
+            if not self.available():
+                return True   # token present + local worker will handle it
+            return await _run_auth_probe([self.executable(), "-p", _PROBE])
+        return False
 
 
 def build_adapters(settings: Settings) -> dict[str, CliAdapter]:

@@ -111,25 +111,43 @@ class EntitlementService:
         ledger = await self._budget.state(ws_id, provider) or {"requests": 0}
         ent = await self._adapters[provider].entitlement(conn, ledger)
         ent["cli_version"] = await self._version(provider) if ent["cli_available"] else None
-        # "Connected" used to mean only "the CLI binary exists on PATH", which let a signed-out
-        # or unkeyed provider sit in the routing pool and burn every subtask's first attempt.
-        # Resolve the real credential state: encrypted key in the workspace DB, a usable value
-        # in the environment (.env / shell), or a host CLI login that a probe confirms.
-        cred = self.credential_env(conn, self._adapters[provider]) if conn else ({}, False)
+        # Resolve the real credential state so the UI can distinguish between three distinct
+        # failure modes (CLI missing / credentials missing / local worker offline) rather
+        # than collapsing them all into a generic "not connected" label.
+        adapter = self._adapters[provider]
+        cred = self.credential_env(conn, adapter) if conn else ({}, False)
         env_key_present = any(v for v in cred[0].values())
+        # API-key adapters (Bob, Gemini, Codex, OpenCode): check_auth() tests key presence
+        # cheaply from os.environ — no network probe. Host-session adapters run a live probe
+        # only when the CLI is actually installed (Railway: not installed → skip probe).
         host_login = False
-        if conn and conn.auth_type == "host_session" and ent["cli_available"]:
-            host_login = await self._adapters[provider].check_auth()
+        if conn and conn.auth_type == "host_session":
+            host_login = await adapter.check_auth()
         if conn is None:
             auth_state = "disconnected"
         elif cred[0]:
+            # A usable API key was resolved (from DB or env).
             auth_state = "api_key"
         elif conn.auth_type == "local_worker":
-            auth_state = "local_worker" if self._local_agent_broker and self._local_agent_broker.connected(provider) else "worker_disconnected"
+            # Local-agent bridge: worker present = authenticated, absent = offline.
+            if self._local_agent_broker and self._local_agent_broker.connected(provider):
+                auth_state = "local_worker"
+            else:
+                auth_state = "worker_offline"
         elif conn.auth_type == "host_session":
-            auth_state = "host_session" if host_login else "signed_out"
+            if not ent["cli_available"]:
+                # CLI binary not installed on this host (e.g. Railway without agy).
+                auth_state = "cli_missing"
+            elif host_login:
+                auth_state = "host_session"
+            else:
+                auth_state = "signed_out"
         else:
-            auth_state = "no_credentials"
+            # Connected but no API key in DB/env and not a session/worker type.
+            if not ent["cli_available"]:
+                auth_state = "cli_missing"
+            else:
+                auth_state = "auth_missing"
         ent.update(connected=conn is not None, auth_type=conn.auth_type if conn else None,
                    auth_state=auth_state,
                    authenticated=auth_state in ("api_key", "host_session", "local_worker"),
@@ -144,8 +162,14 @@ class EntitlementService:
         env_name = adapter.api_key_env
         return {
             "disconnected": f"Connect {adapter.display_name} (POST /providers with api_key, or this panel).",
-            "signed_out": f"{adapter.display_name} CLI is installed but not signed in: run '{adapter.executable()} /login' on the host, or store an API key here.",
+            "cli_missing": f"{adapter.display_name} CLI ('{adapter.executable()}') is not installed on this host. "
+                           f"Set {env_name} to use the API-key path, or connect a local worker.",
+            "auth_missing": f"No credentials for {adapter.display_name}: set the {env_name} env var or store an API key here.",
+            "signed_out": f"{adapter.display_name} CLI is installed but not signed in. "
+                          f"Run '{adapter.executable()} login' on the host, or store an API key (env var: {env_name}).",
             "no_credentials": f"No credentials: store an API key (env var name: {env_name}) or sign in on the host.",
+            "worker_offline": f"{adapter.display_name} is configured for the local-agent bridge but no worker is connected. "
+                              f"Start the local agent on your machine (UNFOLDX_AGENT_BRIDGE_TOKEN must match).",
         }.get(auth_state)
 
     async def status(self, ws_id: str) -> list[dict]:

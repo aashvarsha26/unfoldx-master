@@ -86,14 +86,16 @@ class Settings(BaseSettings):
     max_subtask_attempts: int = 4
 
     # --- provider CLI command templates ({prompt} becomes ONE argv token; no shell is involved) --
-    # NOTE: Bob Shell uses --output-format, not --format. Override BOB_CMD / BOB_PLAN_CMD in your
-    # environment if the installed bob version uses different flags.
-    bob_cmd: str = "bob run --accept-license --output-format stream-json {prompt}"
-    bob_plan_cmd: str = "bob run --accept-license --mode plan --output-format stream-json {prompt}"
+    # Bob Shell: plan mode uses --format json (single JSON object on stdout, easy to parse);
+    # execute mode uses --format stream-json (NDJSON, events streamed line by line).
+    bob_cmd: str = "bob run --accept-license --format stream-json {prompt}"
+    bob_plan_cmd: str = "bob run --accept-license --mode plan --format json {prompt}"
     codex_cmd: str = "codex exec --json --skip-git-repo-check -s danger-full-access {prompt}"
     codex_plan_cmd: str = "codex exec --json --skip-git-repo-check -s read-only {prompt}"
-    gemini_cmd: str = "agy -p {prompt} --output-format stream-json --mode accept-edits"
-    gemini_plan_cmd: str = "agy -p {prompt} --output-format stream-json --mode plan"
+    # Antigravity (agy): --yes suppresses interactive confirmation prompts so the process
+    # does not hang waiting for stdin on Railway or any non-TTY environment.
+    gemini_cmd: str = "agy -p {prompt} --output-format stream-json --mode accept-edits --yes"
+    gemini_plan_cmd: str = "agy -p {prompt} --output-format stream-json --mode plan --yes"
     opencode_cmd: str = "opencode run --auto --format json {prompt}"
     opencode_plan_cmd: str = "opencode run --agent plan --format json {prompt}"
     opencode_api_key_env: str = "OPENCODE_API_KEY"

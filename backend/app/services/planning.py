@@ -35,12 +35,27 @@ class Plan(BaseModel):
 
 # ---------------------------------------------------------------------------------------------
 def _json_candidates(text: str) -> list[dict]:
-    """All JSON objects found in text: fenced blocks first, then balanced-brace scans."""
+    """All JSON objects found in text: try the whole text first (Bob --format json outputs a
+    single bare JSON object with no fencing), then fenced blocks, then balanced-brace scans."""
     found: list[dict] = []
+
+    # Fast path: Bob plan mode writes one clean JSON object to stdout, nothing else.
+    # Also handles NDJSON: the last non-empty line that is a valid JSON plan object wins.
+    for line in reversed(text.strip().splitlines()):
+        s = line.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                v = json.loads(s)
+                if isinstance(v, dict) and "subtasks" in v:
+                    found.append(v)
+                    break
+            except json.JSONDecodeError:
+                pass
+
     for m in re.finditer(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S | re.I):
         try:
             v = json.loads(m.group(1))
-            if isinstance(v, dict):
+            if isinstance(v, dict) and v not in found:
                 found.append(v)
         except json.JSONDecodeError:
             pass
@@ -119,6 +134,9 @@ def parse_handoff(text: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------------------------
+# Keywords are matched with \b word boundaries so substrings like "bridge-test.txt"
+# or "attest" do NOT trigger the "testing" rule.  Each tuple entry is a keyword
+# (single word / phrase) that must appear as a whole word / phrase in the request.
 _RULES: list[tuple[str, tuple[str, ...], str, list[str]]] = [
     # capability, keywords, title, default claimed paths
     ("docs", ("presentation", "slides", "slide deck", "ppt", "pitch deck"), "Create the presentation", ["slides.html"]),
@@ -130,7 +148,8 @@ _RULES: list[tuple[str, tuple[str, ...], str, list[str]]] = [
     ("security", ("security", "vulnerab", "sanitiz", "xss", "csrf", "harden"), "Security review and hardening", ["backend/**"]),
     ("frontend", ("ui", "ux", "page", "component", "frontend", "react", "next.js", "css", "layout", "dashboard", "form", "button", "website", "web site", "web page", "landing", "homepage", "site", "gallery", "menu"), "Build the user interface (UI/UX)", ["frontend/**"]),
     ("devops", ("docker", "deploy", "ci/cd", "pipeline", "kubernetes", "preview server", "dev server", "local server", "serve", "host it", "run it locally"), "Containerise and configure deployment", ["Dockerfile", "docker-compose.yml", ".github/**"]),
-    ("testing", ("test", "pytest", "coverage", "qa"), "Write and run tests", ["tests/**"]),
+    # "test" / "tests" require a full word boundary: "bridge-test.txt" must not match.
+    ("testing", ("tests", "pytest", "coverage", "unit test", "write tests", "run tests", "qa"), "Write and run tests", ["tests/**"]),
     ("docs", ("readme", "docs", "documentation", "document "), "Write documentation", ["docs/**", "README.md"]),
 ]
 _EXT_TO_CAP = {".py": "backend", ".go": "backend", ".java": "backend", ".rs": "backend", ".sql": "backend",

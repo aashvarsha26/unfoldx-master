@@ -143,18 +143,22 @@ class Orchestrator:
             c, b = conns.get(a.provider), budgets.get(a.provider)
             if c is None or b is None:
                 continue
-            # A provider bench-cooldown counts as temporarily unavailable for real runs; the
-            # simulated fallback stays usable so the pipeline keeps flowing. Credential truth
-            # (API key in DB/env, verified CLI login) is surfaced in provider_status(); a
-            # dispatch that still hits a signed-out CLI fails fast, benches it, and the
-            # router re-routes — no per-dispatch login probe (too slow/costly here).
+            # cli_available: the binary is on PATH AND not in a failover bench.
+            # authenticated: a usable credential exists (API key in DB/env, or confirmed CLI
+            #   login via check_auth). This is evaluated cheaply from the cached entitlement
+            #   state — no live probe per dispatch (too slow/costly here).
             cli_available = self.ctx.adapters[a.provider].available() and now >= self.provider_cooldowns.get(a.provider, 0.0)
             benched = a.provider in self.provider_cooldowns and now < self.provider_cooldowns[a.provider]
+            # Derive authenticated from the connection's stored credential state so routing
+            # skips providers that will immediately fail with an auth error.
+            env, _ = self.ctx.entitlement.credential_env(c, self.ctx.adapters[a.provider])
+            authenticated = bool(env) or c.auth_type in ("host_session", "local_worker")
             quota = None
             if c.pricing.get("model") == "seat" and c.pricing.get("monthly_request_quota"):
                 quota = int(c.pricing["monthly_request_quota"]) - b["requests"]
             out.append(Candidate(a.id, a.provider, a.name, a.capabilities or {}, c.pricing, b, a.enabled, quota,
-                                 cli_available=cli_available, benched=benched))
+                                 cli_available=cli_available, benched=benched,
+                                 authenticated=authenticated))
         return out
 
     def provider_failed(self, provider: str) -> None:
@@ -461,17 +465,23 @@ class Orchestrator:
                 if not outcome.simulated and not rs.redirected and sub.attempts < self.ctx.settings.max_subtask_attempts:
                     if outcome.error_kind == "auth" or _looks_like_auth_failure(msg):
                         self.provider_auth_failed(agent.provider)
+                        fail_kind = "auth failure — CLI not signed in or missing API key"
                     elif outcome.error_kind == "permission":
                         # Signed-in but the headless policy denies tool calls: re-running on the
                         # same provider is hopeless until the CLI's permission mode is fixed.
                         # Bench like an auth failure so the router moves on immediately.
                         self.provider_auth_failed(agent.provider)
+                        fail_kind = "permission denied (headless policy refuses tool calls)"
+                    elif not self.ctx.adapters[agent.provider].available():
+                        fail_kind = "CLI not installed on this host"
+                        self.provider_failed(agent.provider)
                     else:
+                        fail_kind = "crash or non-zero exit"
                         self.provider_failed(agent.provider)
                     await self._set(sub_id, status="pending", agent_id=agent.id,
                                     forced_agent_id=None, error=None, finished_at=None)
                     await self.ctx.events.append(ws, "log_line", {
-                        "line": f"Subtask '{sub.title}' failed on {agent.name} ({msg}); re-routing to the next best agent",
+                        "line": f"Subtask '{sub.title}' failed on {agent.name} ({fail_kind}); re-routing to the next best agent",
                         "level": "warning", "failover": True}, **ident)
                 else:
                     await self._set(sub_id, status="failed", error=msg, finished_at=_now())

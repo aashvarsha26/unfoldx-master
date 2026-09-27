@@ -1,8 +1,8 @@
 """Best-effort normalisation of each CLI's JSON-lines output into AgentEvents.
 
 Claude Code (`--output-format stream-json --verbose`) and Codex (`exec --json`) follow their public
-event shapes. Bob Shell / Gemini use the tolerant `generic_event` (looks for common keys). Whatever
-the real Bob stream-json schema turns out to be, adjust ONLY this file. Non-JSON lines are logged as-is."""
+event shapes.  Bob Shell uses `--format stream-json` (execute) / `--format json` (plan).
+Whatever Bob's schema changes to, adjust bob_event() ONLY in this file. Non-JSON lines are logged as-is."""
 from __future__ import annotations
 
 from typing import Any
@@ -260,6 +260,62 @@ def opencode_event(obj: dict, state: dict) -> list[AgentEvent]:
                 out.append(AgentEvent("file", files=sorted(bf)))
             out.append(AgentEvent("result", text=state.get("last_text", "")))
     return out
+
+
+def bob_event(obj: dict, state: dict) -> list[AgentEvent]:
+    """IBM Bob Shell `--format stream-json` (execute mode) NDJSON normaliser.
+
+    Bob emits a stream of JSON lines.  The documented keys observed in practice:
+      {"type": "text",    "text": "..."}          -> log line / accumulate last_text
+      {"type": "tool",    "name": "...", "input": {...}}  -> tool call
+      {"type": "result",  "text": "..."}          -> final answer
+      {"type": "usage",   "input_tokens": N, "output_tokens": N}
+      {"type": "error",   "message": "..."}
+
+    `generic_event` is used as a catch-all fallback for any shape not explicitly handled,
+    keeping this parser forward-compatible with Bob schema changes.
+    """
+    out: list[AgentEvent] = []
+    t = _s(obj.get("type")).lower()
+
+    if t == "text":
+        txt = _s(obj.get("text"))
+        if txt.strip():
+            state["last_text"] = txt
+            out.append(AgentEvent("log", text=txt))
+        return out
+
+    if t == "tool":
+        name = _s(obj.get("name"))
+        inp = obj.get("input") or {}
+        path = (_s(inp.get("file_path")) or _s(inp.get("path")) or
+                _s(inp.get("filePath")) or _s(inp.get("filename")))
+        cmd = _s(inp.get("command"))
+        detail = path or cmd[:160]
+        out.append(AgentEvent("log", text=f"tool: {name} {detail}".strip()))
+        if name in WRITE_TOOLS and path:
+            out.append(AgentEvent("file", files=[path]))
+        return out
+
+    if t == "result":
+        txt = _s(obj.get("text")) or state.get("last_text", "")
+        out.append(AgentEvent("result", text=txt))
+        return out
+
+    if t in ("error", "fatal"):
+        msg = _s(obj.get("message")) or _s(obj.get("text")) or "Bob reported an error"
+        out.append(AgentEvent("error", text=msg))
+        return out
+
+    if t == "usage":
+        ue = _usage_event(obj)
+        if ue:
+            out.append(ue)
+        return out
+
+    # Unknown Bob event type — fall through to the generic handler so new event
+    # types don't silently disappear from the UI.
+    return generic_event(obj, state)
 
 
 def generic_event(obj: dict, state: dict) -> list[AgentEvent]:

@@ -36,6 +36,7 @@ class Candidate:
     quota_requests_remaining: int | None = None
     cli_available: bool = True       # provider CLI installed on this host (adapter.available())
     benched: bool = False            # in failover cooldown: a real run just failed hard (auth/crash)
+    authenticated: bool = True       # has a verified credential (API key or confirmed CLI login)
 
 
 @dataclass
@@ -67,16 +68,21 @@ def choose(capabilities: list[str], description: str, candidates: list[Candidate
     viable: list[tuple[Candidate, float]] = []
     reasons: list[str] = []
     budget_blocked = False
-    # Prefer a real run: while ANY candidate has a genuinely-usable installed CLI (enabled, not
-    # budget/quota-blocked), agents with no CLI on this host are excluded from scoring so the best *real*
-    # executor wins instead of a simulated run. When every usable real CLI is absent, the high-scoring
-    # candidate still wins (the clearly-labelled simulated run keeps the demo alive). A forced / redirect
-    # target is respected regardless (explicit user override).
+    # Prefer a real, authenticated run:
+    # - While any candidate has a CLI on PATH (enabled, not budget-blocked), CLI-less candidates
+    #   are excluded so the best *real* executor wins over a simulated one.
+    # - While any candidate is authenticated (API key / CLI login confirmed), unauthenticated
+    #   candidates are also excluded so the router never routes to a provider that will
+    #   immediately fail with an auth error, burn an attempt, and bench itself.
+    # Forced / redirect targets are always respected (explicit user override).
     def _usable_cli(c: Candidate) -> bool:
         return c.enabled and c.cli_available \
             and c.budget["breaker_state"] != "open" and c.budget["remaining_usd"] > 0 \
             and (c.quota_requests_remaining is None or c.quota_requests_remaining > 0)
     real_eligible = any(_usable_cli(c) for c in candidates if c.agent_id not in exclude)
+    auth_eligible = any(
+        _usable_cli(c) and c.authenticated for c in candidates if c.agent_id not in exclude
+    )
     for c in candidates:
         if c.agent_id in exclude:
             continue
@@ -84,7 +90,10 @@ def choose(capabilities: list[str], description: str, candidates: list[Candidate
             reasons.append(f"{c.name}: disabled")
             continue
         if real_eligible and not forced_agent_id and not c.cli_available:
-            reasons.append(f"{c.name}: CLI not installed")
+            reasons.append(f"{c.name}: CLI not installed (no local binary)")
+            continue
+        if auth_eligible and not forced_agent_id and not c.authenticated:
+            reasons.append(f"{c.name}: no credentials (API key or login required)")
             continue
         if c.budget["breaker_state"] == "open" or c.budget["remaining_usd"] <= 0:
             reasons.append(f"{c.name}: budget cap reached")
