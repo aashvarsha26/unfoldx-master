@@ -42,7 +42,7 @@ class AgentRunner:
     def __init__(self, ctx):
         self.ctx = ctx
 
-    async def _run_local_codex(self, *, ws_id: str, task_id: str | None, subtask_id: str | None,
+    async def _run_local_agent(self, *, ws_id: str, task_id: str | None, subtask_id: str | None,
                               agent: Agent, req: RunRequest, conn, ident: dict,
                               on_file: Callable[[str], Awaitable[None]] | None) -> RunOutcome:
         ctx = self.ctx
@@ -50,11 +50,11 @@ class AgentRunner:
         out = RunOutcome(session_id=req.session_id, simulated=False)
         await ctx.budget.record(ws_id, agent.provider, requests=1)
         await ctx.events.append(ws_id, "dispatch_started", {
-            "command": "[local worker] codex exec (ChatGPT-authenticated)", "agent": agent.name,
+            "command": f"[local worker] {agent.provider} CLI", "agent": agent.name,
             "provider": agent.provider, "mode": req.mode, "simulated": False, "title": req.title,
             "execution": "local_worker"}, **ident)
         try:
-            queue = await ctx.local_codex.enqueue(session_id=req.session_id, workspace_id=ws_id,
+            queue = await ctx.local_agents.enqueue(provider=agent.provider, session_id=req.session_id, workspace_id=ws_id,
                                                   prompt=req.prompt, mode=req.mode)
         except RuntimeError as e:
             out.error = str(e)
@@ -103,7 +103,7 @@ class AgentRunner:
             out.error = f"{adapter.display_name} local worker timed out after {int(req.timeout)}s"
             out.error_kind = "crash"
         finally:
-            ctx.local_codex.finish(req.session_id)
+            ctx.local_agents.finish(req.session_id)
         out.final_text = result_text or "\n".join(buffer[-20:])
         if out.ok and req.mode != "plan" and out.final_text.strip():
             await ctx.events.append(ws_id, "agent_output", {
@@ -127,8 +127,8 @@ class AgentRunner:
                      model=req.model or agent.model, session_id=req.session_id)
         # Codex can run on the user's machine using ChatGPT OAuth instead of an API key.
         # Railway remains the orchestrator; the local worker owns the authenticated CLI process.
-        if agent.provider == "codex" and ctx.local_codex.connected:
-            return await self._run_local_codex(ws_id=ws_id, task_id=task_id, subtask_id=subtask_id,
+        if agent.provider in {"codex", "opencode", "github_copilot"} and ctx.local_agents.connected(agent.provider):
+            return await self._run_local_agent(ws_id=ws_id, task_id=task_id, subtask_id=subtask_id,
                                                agent=agent, req=req, conn=conn, ident=ident, on_file=on_file)
 
         try:
