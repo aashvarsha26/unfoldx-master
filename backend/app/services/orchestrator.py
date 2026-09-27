@@ -158,16 +158,18 @@ class Orchestrator:
         return out
 
     def provider_failed(self, provider: str) -> None:
-        """Bench a provider whose real CLI just failed hard (auth error, crash, timeout)."""
-        if self.ctx.settings.failover_cooldown_seconds > 0 and self.ctx.adapters[provider].available():
+        """Bench a provider whose real CLI just failed hard (auth error, crash, timeout).
+        Also benches providers whose CLI is not installed so re-routing during a task does
+        not repeatedly attempt doomed simulated runs when a real provider is available."""
+        if self.ctx.settings.failover_cooldown_seconds > 0:
             self.provider_cooldowns[provider] = _now().timestamp() + self.ctx.settings.failover_cooldown_seconds
 
     def provider_auth_failed(self, provider: str) -> None:
-        """Bench a provider whose CLI is signed out. Unlike a crash, this cannot recover mid-task,
-        so bench for AUTH_BENCH_SECONDS regardless of the (shorter) failover cooldown setting —
-        sibling subtasks must skip the dead CLI instead of each paying a doomed attempt."""
-        if self.ctx.adapters[provider].available():
-            self.provider_cooldowns[provider] = _now().timestamp() + AUTH_BENCH_SECONDS
+        """Bench a provider whose CLI is signed out (or key is missing). Unlike a crash, this
+        cannot recover mid-task, so bench for AUTH_BENCH_SECONDS regardless of the (shorter)
+        failover cooldown setting — sibling subtasks must skip the dead CLI instead of each
+        paying a doomed attempt."""
+        self.provider_cooldowns[provider] = _now().timestamp() + AUTH_BENCH_SECONDS
 
     # ------------------------------------------------------------------ submit
     async def submit_task(self, ws_id: str, user_id: str | None, prompt: str, attachment_ids: list[str]) -> Task:

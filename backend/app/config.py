@@ -56,8 +56,9 @@ class Settings(BaseSettings):
     # fixed single port like 3000 quickly goes stale.) Starlette's CORSMiddleware has
     # NO port-wildcard support in the plain origin list ("http://localhost:*" would be
     # treated as a literal string that never matches), so the dev wildcard is expressed
-    # via cors_origin_regex instead. In production set explicit origins and an empty regex.
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://aashvarsha26.github.io,https://creative-unity-production.up.railway.app"
+    # via cors_origin_regex instead. In production set CORS_ORIGINS to your exact
+    # frontend origins (comma-separated) and leave cors_origin_regex empty.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     cors_origin_regex: str = r"https?://(localhost|127\.0.0\.1)(:\d+)?"
     seed_demo_workspace: bool = True
     demo_workspace_id: str = "demo-workspace"
@@ -85,8 +86,10 @@ class Settings(BaseSettings):
     max_subtask_attempts: int = 4
 
     # --- provider CLI command templates ({prompt} becomes ONE argv token; no shell is involved) --
-    bob_cmd: str = "bob run --accept-license --format stream-json {prompt}"
-    bob_plan_cmd: str = "bob run --accept-license --mode plan --format stream-json {prompt}"
+    # NOTE: Bob Shell uses --output-format, not --format. Override BOB_CMD / BOB_PLAN_CMD in your
+    # environment if the installed bob version uses different flags.
+    bob_cmd: str = "bob run --accept-license --output-format stream-json {prompt}"
+    bob_plan_cmd: str = "bob run --accept-license --mode plan --output-format stream-json {prompt}"
     codex_cmd: str = "codex exec --json --skip-git-repo-check -s danger-full-access {prompt}"
     codex_plan_cmd: str = "codex exec --json --skip-git-repo-check -s read-only {prompt}"
     gemini_cmd: str = "agy -p {prompt} --output-format stream-json --mode accept-edits"

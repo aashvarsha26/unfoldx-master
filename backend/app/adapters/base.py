@@ -98,7 +98,7 @@ async def _run_auth_probe(argv: list[str], timeout: float = 20.0) -> bool:
         proc = subprocess.Popen(_resolve_probe_argv(argv), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 stdin=subprocess.DEVNULL, env=sandbox_env({}, None, True))
         try:
-            out, _ = await asyncio.to_thread(proc.communicate, timeout)
+            out, _ = await asyncio.to_thread(proc.communicate, None, timeout)
         except Exception:
             proc.kill()
             return False

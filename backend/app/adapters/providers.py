@@ -1,16 +1,35 @@
 from __future__ import annotations
 
+import os
+
 from ..config import Settings
 from .base import AgentEvent, CliAdapter, _run_auth_probe
-from .normalize import agy_event, codex_event, opencode_event
+from .normalize import agy_event, codex_event, generic_event, opencode_event
 
 _PROBE = "reply with exactly: UAW_AUTH_PROBE_OK"
 
 
 class BobAdapter(CliAdapter):
-    """IBM Bob Shell: Plan-mode decomposition + headless execution (`bob run --format stream-json`)."""
+    """IBM Bob Shell: Plan-mode decomposition + headless execution (`bob run --output-format stream-json`)."""
     provider, binary = "bob", "bob"
     api_key_env_attr, cmd_attr, plan_cmd_attr = "bob_api_key_env", "bob_cmd", "bob_plan_cmd"
+
+    def parse_json_event(self, obj: dict, state: dict) -> list[AgentEvent]:
+        # Bob Shell emits stream-json in the same generic shape (type/text/usage keys).
+        # generic_event handles it correctly today; swap this for a bob-specific parser
+        # once the exact wire format is confirmed from live runs.
+        return generic_event(obj, state)
+
+    async def check_auth(self) -> bool:
+        """Return True when an API key is present in the environment (env var set or stored in DB).
+        Bob is API-key authenticated, so a key in the environment is sufficient proof of auth."""
+        key_env = self.settings.bob_api_key_env  # "BOB_API_KEY"
+        if os.environ.get(key_env):
+            return True
+        # Legacy env var kept for backwards compat with older Railway deployments.
+        if os.environ.get("BOBSHELL_API_KEY"):
+            return True
+        return False
 
 
 class OpenCodeAdapter(CliAdapter):

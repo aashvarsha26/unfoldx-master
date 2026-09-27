@@ -31,7 +31,10 @@ def _usage_event(u: dict | None) -> AgentEvent | None:
     tout = _int(u.get("output_tokens"), u.get("completion_tokens"), u.get("candidatesTokenCount"), u.get("outputTokens"))
     if tin or tout:
         return AgentEvent("usage", tokens_in=tin, tokens_out=tout)
-    return None# Vendor error lines that describe the CLI's own login/credential state. These are normal
+    return None
+
+
+# Vendor error lines that describe the CLI's own login/credential state. These are normal
 # when a host CLI is installed but not signed in: recording them as hard errors fails every
 # subtask. Demoted to warning log lines, and the provider is benched via provider_failed()
 # so the router re-routes the work to an agent that can actually run.
