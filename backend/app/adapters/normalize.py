@@ -298,8 +298,14 @@ def bob_event(obj: dict, state: dict) -> list[AgentEvent]:
         return out
 
     if t == "result":
-        txt = _s(obj.get("text")) or state.get("last_text", "")
-        out.append(AgentEvent("result", text=txt))
+        txt = (_s(obj.get("last_message")) or _s(obj.get("text")) or
+               state.get("last_text", ""))
+        metadata = {
+            "type": "result",
+            "status": _s(obj.get("status")) or None,
+            "stats": obj.get("stats") if isinstance(obj.get("stats"), dict) else {},
+        }
+        out.append(AgentEvent("result", text=txt, metadata=metadata))
         return out
 
     if t in ("error", "fatal"):
