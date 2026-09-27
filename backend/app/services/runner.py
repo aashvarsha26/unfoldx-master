@@ -55,7 +55,7 @@ class AgentRunner:
             "execution": "local_worker"}, **ident)
         try:
             queue = await ctx.local_agents.enqueue(provider=agent.provider, session_id=req.session_id, workspace_id=ws_id,
-                                                  prompt=req.prompt, mode=req.mode)
+                                                  prompt=req.prompt, mode=req.mode, model=req.model)
         except RuntimeError as e:
             out.error = str(e)
             out.error_kind = "auth"
