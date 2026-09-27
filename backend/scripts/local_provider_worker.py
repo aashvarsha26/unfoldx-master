@@ -95,7 +95,7 @@ async def main() -> None:
         raise SystemExit("Set UNFOLDX_LOCAL_PROVIDER=opencode or github_copilot.")
     if not BACKEND_WS or not TOKEN:
         raise SystemExit("Set UNFOLDX_BACKEND_WS and UNFOLDX_AGENT_BRIDGE_TOKEN.")
-    uri = f"{BACKEND_WS}/ws/agent-bridge?token={TOKEN}"
+    uri = f"{BACKEND_WS}?token={TOKEN}"
     print(f"UNFOLD X local worker [{PROVIDER}] -> {BACKEND_WS}")
     print(f"Local repo: {REPO_ROOT}")
     print(f"CLI: {resolve('opencode' if PROVIDER == 'opencode' else 'copilot')}")
