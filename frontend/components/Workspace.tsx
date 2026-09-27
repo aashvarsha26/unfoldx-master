@@ -15,7 +15,6 @@ import { EventFeed } from "./EventFeed";
 import { AskBob } from "./AskBob";
 import { AgentRail } from "./AgentRail";
 import { PluginsPanel } from "./PluginsPanel";
-import { ProvidersPanel } from "./ProvidersPanel";
 import { Inspector } from "./Inspector";
 import { OutputPanel } from "./OutputPanel";
 import type { CanvasPluginPanel, PluginId } from "@/lib/plugins";
@@ -134,7 +133,6 @@ export function Workspace() {
             onAction={send}
           />
           <PluginsPanel onOpenPlugin={openPlugin} />
-          <ProvidersPanel workspaceId={WORKSPACE_ID} canApprove={auth.permissions.canApprove} />
           <section className="mt-3 overflow-hidden rounded-xl bg-ink-900">
             <div className="border-b border-ink-700 px-4 py-3">
               <h2 className="text-[11px] font-semibold uppercase tracking-widest text-state-info">Budget ledger</h2>
