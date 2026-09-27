@@ -17,6 +17,7 @@ class _Job:
     workspace_id: str
     prompt: str
     mode: str
+    model: str | None
     queue: asyncio.Queue
 
 
@@ -35,11 +36,11 @@ class LocalAgentBridge:
         return self._worker_counts.get(provider, 0) > 0
 
     async def enqueue(self, *, provider: str, session_id: str, workspace_id: str,
-                      prompt: str, mode: str) -> asyncio.Queue:
+                      prompt: str, mode: str, model: str | None = None) -> asyncio.Queue:
         if not self.enabled:
             raise RuntimeError("agent bridge is not configured")
         q = asyncio.Queue(maxsize=1000)
-        job = _Job(provider, session_id, workspace_id, prompt, mode, q)
+        job = _Job(provider, session_id, workspace_id, prompt, mode, model, q)
         self._jobs[session_id] = job
         self._pending.setdefault(provider, asyncio.Queue())
         await self._pending[provider].put(job)
@@ -73,6 +74,7 @@ class LocalAgentBridge:
                     "workspace_id": job.workspace_id,
                     "prompt": job.prompt,
                     "mode": job.mode,
+                    "model": job.model,
                 })
                 while True:
                     msg = await websocket.receive_json()
