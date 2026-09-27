@@ -20,8 +20,18 @@ RUN pip install -r requirements.txt
 COPY app ./app
 COPY schema ./schema
 RUN useradd -m uaw && mkdir -p /srv/data && chown -R uaw /srv
+
+# Antigravity CLI is installed as the same non-root user that runs the backend.
+# Its Gemini API-key provider is selected through this settings file; the actual
+# GEMINI_API_KEY is injected by Railway at runtime and is never baked into the image.
 USER uaw
+ENV HOME=/home/uaw PATH=/home/uaw/.local/bin:$PATH
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
+    && mkdir -p /home/uaw/.gemini/antigravity-cli \
+    && printf '{"modelProvider":"gemini"}\n' > /home/uaw/.gemini/antigravity-cli/settings.json \
+    && agy --version
+
 EXPOSE 8000
-# Bob Shell and OpenAI Codex CLI are installed in the image. Other provider CLIs
-# still fall back to simulation when ALLOW_SIMULATION=1.
+# Bob Shell, OpenAI Codex CLI, and Antigravity CLI are installed in the image.
+# Set ALLOW_SIMULATION=0 in production so missing providers fail instead of simulating.
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
