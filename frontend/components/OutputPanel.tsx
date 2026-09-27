@@ -13,13 +13,21 @@ import type { WorkspaceEvent } from "@/lib/types";
  * useWorkspaceSocket into `events`.
  */
 
-interface ExecutionResult { type?: string; status?: string | null; stats?: { duration_ms?: number; session_costs?: number; tool_calls?: number; [key: string]: unknown } }\n\ninterface TaskStream {
+interface ExecutionResult { type?: string; status?: string | null; stats?: { duration_ms?: number; session_costs?: number; tool_calls?: number; [key: string]: unknown } }
+
+interface TaskStream {
   taskId: string;
   lines: { id: string; provider: string | null; text: string; simulated: boolean }[];
   simulated: boolean;
 }
 
-function asResult(value: unknown): ExecutionResult | undefined {\n  if (!value || typeof value !== "object") return undefined;\n  const v = value as Record<string, unknown>;\n  return { type: typeof v.type === "string" ? v.type : undefined, status: typeof v.status === "string" ? v.status : null, stats: v.stats && typeof v.stats === "object" ? (v.stats as ExecutionResult["stats"]) : undefined };\n}\n\nfunction groupByTask(events: WorkspaceEvent[]): TaskStream[] {
+function asResult(value: unknown): ExecutionResult | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as Record<string, unknown>;
+  return { type: typeof v.type === "string" ? v.type : undefined, status: typeof v.status === "string" ? v.status : null, stats: v.stats && typeof v.stats === "object" ? (v.stats as ExecutionResult["stats"]) : undefined };
+}
+
+function groupByTask(events: WorkspaceEvent[]): TaskStream[] {
   const byTask = new Map<string, TaskStream>();
   for (const e of events) {
     if (e.event_type !== "agent_output" || !e.task_id) continue;
@@ -47,7 +55,9 @@ function TaskStreamView({ stream, defaultOpen }: { stream: TaskStream; defaultOp
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasAtBottom = useRef(true);
 
-  const lastLen = stream.lines[stream.lines.length - 1]?.text.length ?? 0;\n  const stats = stream.result?.stats;\n  const status = stream.result?.status;
+  const lastLen = stream.lines[stream.lines.length - 1]?.text.length ?? 0;
+  const stats = stream.result?.stats;
+  const status = stream.result?.status;
 
   useEffect(() => {
     const el = scrollRef.current;
